@@ -16,7 +16,9 @@ import time
 load_dotenv()
 
 groq_client = Groq(api_key=os.getenv("GROQ_API_KEY"))
+# Text To Speech (TTS)
 tts_client = get_tts_model(model="kokoro")
+# Speech To Text (STT)
 stt_model = get_stt_model(model="moonshine/base")
 
 options = KokoroTTSOptions(
@@ -63,7 +65,8 @@ def generate_response(
 
 def response(
     audio: tuple[int, NDArray[np.int16 | np.float32]],
-    chatbot: list[dict] | None = None
+    chatbot: list[dict] | None = None,
+    tts_options: KokoroTTSOptions | None = None,
 ):
     # Transcription and response generation
     gen = generate_response(audio, chatbot)
@@ -77,7 +80,15 @@ def response(
     print(response_text)
 
     # Use tts_client.stream_tts_sync for TTS (Local TTS)
-    for chunk in tts_client.stream_tts_sync(response_text):
+    # Pass tts_options if provided, else use default options
+    tts_options = KokoroTTSOptions(
+        voice="bf_alice",
+        speed=1.0,
+        lang="en-us"
+    )
+    for chunk in tts_client.stream_tts_sync(
+        response_text, options=tts_options or options
+    ):
         yield chunk
 
 
@@ -86,7 +97,16 @@ stream = Stream(
     modality="audio",
     mode="send-receive",
     ui_args={
-        "title": "LLM Voice Chat (Powered by Groq, Kokoro, and Moonshine ⚡️)"},
+        "title": "LLM Voice Chat (Powered by Groq, Kokoro, and Moonshine ⚡️)",
+        "inputs": [
+            {"name": "voice", "type": "dropdown", "choices": [
+                "af_heart", "af_sun", "af_moon"], "label": "Voice", "value": "af_heart"},
+            {"name": "speed", "type": "slider", "min": 0.5, "max": 2.0,
+                "step": 0.1, "label": "Speed", "value": 1.0},
+            {"name": "lang", "type": "dropdown", "choices": [
+                "en-us", "en-uk"], "label": "Language", "value": "en-us"},
+        ]
+    },
 )
 
 stream.ui.launch()

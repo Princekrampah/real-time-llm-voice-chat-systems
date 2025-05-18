@@ -1,20 +1,20 @@
-from fastrtc import ReplyOnPause, Stream, AdditionalOutputs
+from fastrtc import ReplyOnPause, Stream, AdditionalOutputs, get_tts_model, KokoroTTSOptions
 import numpy as np
 from numpy.typing import NDArray
 
 from dotenv import load_dotenv
 from groq import Groq
-from elevenlabs import ElevenLabs
 
 import os
 import time
 import tempfile
 import wave
+import gradio as gr
 load_dotenv()
 
 groq_client = Groq(api_key=os.getenv("GROQ_API_KEY"))
-# Test To Speech (TTS)
-tts_client = ElevenLabs(api_key=os.getenv("ELEVENLABS_API_KEY"))
+# Use Kokoro for Text To Speech (TTS)
+tts_client = get_tts_model(model="kokoro")
 
 
 def audio_to_wav_file(audio_data, sample_rate):
@@ -84,7 +84,10 @@ def generate_response(
 
 def response(
     audio: tuple[int, NDArray[np.int16 | np.float32]],
-    chatbot: list[dict] | None = None
+    voice: str = "af_heart",
+    speed: float = 1.0,
+    lang: str = "en-us",
+    chatbot: list[dict] | None = None,
 ):
     # Transcription and response generation
     gen = generate_response(audio, chatbot)
@@ -97,24 +100,65 @@ def response(
 
     print(response_text)
 
-    # Fall back to ElevenLabs for reliable TTS
-    print("Using ElevenLabs for text-to-speech")
-    for chunk in tts_client.text_to_speech.convert_as_stream(
-        text=response_text,
-        voice_id="JBFqnCBsd6RMkjVDRZzb",
-        model_id="eleven_multilingual_v2",
-        output_format="pcm_24000",
+    # Use Kokoro for TTS
+    tts_options = KokoroTTSOptions(
+        voice=voice,
+        speed=speed,
+        lang=lang
+    )
+    for chunk in tts_client.stream_tts_sync(
+        response_text, options=tts_options
     ):
-        audio_array = np.frombuffer(chunk, dtype=np.int16).reshape(1, -1)
-        yield (24000, audio_array)
+        yield chunk
 
-
+# Docs on available languages and voicess: https://huggingface.co/hexgrad/Kokoro-82M/blob/main/VOICES.md
 stream = Stream(
     handler=ReplyOnPause(response, input_sample_rate=16000),
     modality="audio",
     mode="send-receive",
+    additional_inputs=[
+        gr.Dropdown(
+            label="Voice",
+            choices=[
+                # 🇺🇸 American English
+                "af_heart", "af_bella", "af_nicole", "am_fenrir", "am_puck",
+                # 🇬🇧 British English
+                "bf_emma", "bf_isabella", "bm_fable", "bm_george",
+                # 🇯🇵 Japanese
+                "jf_alpha", "jf_gongitsune", "jf_tezukuro", "jm_kumo",
+                # 🇨🇳 Mandarin Chinese
+                "zf_xiaobei", "zm_yunjian",
+                # 🇪🇸 Spanish
+                "ef_dora", "em_alex",
+                # 🇫🇷 French
+                "ff_siwis",
+                # 🇮🇳 Hindi
+                "hf_alpha", "hm_omega",
+                # 🇮🇹 Italian
+                "if_sara", "im_nicola",
+                # 🇧🇷 Brazilian Portuguese
+                "pf_dora", "pm_alex"
+            ],
+            value="af_heart",
+        ),
+        gr.Slider(
+            label="Speed",
+            minimum=0.5,
+            maximum=2.0,
+            step=0.1,
+            value=1.0,
+        ),
+        gr.Dropdown(
+            label="Language",
+            choices=[
+                "en-us", "en-uk", "ja", "zh", "es", "fr", "hi", "it", "pt-br"
+            ],
+            value="en-us",
+        ),
+    ],
     ui_args={
-        "title": "LLM Voice Chat (Powered By Groq, ElevenLabs, and WebRTC ⚡️)"},
+        "title": "LLM Voice Chat (Powered By Groq, Kokoro, and WebRTC ⚡️)"
+    },
 )
 
 stream.ui.launch()
